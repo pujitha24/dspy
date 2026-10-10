@@ -95,3 +95,26 @@ def test_command_is_list_not_string(mock_wait, mock_port, mock_popen, mock_threa
         assert "--model-path" in command
         assert "--port" in command
         assert "--host" in command
+
+
+def test_wait_for_server_times_out_when_connection_refused():
+    import pytest
+
+    from dspy.clients.lm_local import get_free_port, wait_for_server
+
+    port = get_free_port()
+    with pytest.raises(TimeoutError):
+        wait_for_server(f"http://localhost:{port}", timeout=1)
+
+
+def test_wait_for_server_raises_when_process_exited():
+    import pytest
+
+    from dspy.clients.lm_local import get_free_port, wait_for_server
+
+    process = mock.Mock()
+    process.poll.return_value = 1
+    process.returncode = 1
+    port = get_free_port()
+    with pytest.raises(RuntimeError, match="exited with code 1"):
+        wait_for_server(f"http://localhost:{port}", timeout=30, process=process)
