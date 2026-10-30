@@ -1,3 +1,4 @@
+import json
 import re
 import types
 import xml.etree.ElementTree as ET
@@ -13,6 +14,7 @@ from typing_extensions import is_typeddict
 
 from dspy.adapters.chat_adapter import ChatAdapter, FieldInfoWithName
 from dspy.adapters.utils import (
+    _get_json_schema,
     apply_output_field_defaults,
     format_field_value,
     parse_value,
@@ -54,7 +56,9 @@ class XMLAdapter(ChatAdapter):
 
         def format_field(name, field):
             if self._uses_nested_xml(field.annotation):
-                return self._xml_schema(name, field.annotation)
+                # The XML skeleton only has field names; keep descriptions, types and Literal values.
+                schema = json.dumps(_get_json_schema(field.annotation), ensure_ascii=False)
+                return f"{self._xml_schema(name, field.annotation)}\n# note: the XML above must adhere to the JSON schema: {schema}"
             annotations = (
                 get_args(field.annotation)
                 if get_origin(field.annotation) in (Union, types.UnionType)

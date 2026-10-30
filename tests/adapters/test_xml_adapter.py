@@ -1,3 +1,4 @@
+import json
 from typing import Literal
 from unittest import mock
 
@@ -7,9 +8,15 @@ from typing_extensions import TypedDict
 
 import dspy
 from dspy.adapters.chat_adapter import FieldInfoWithName
+from dspy.adapters.utils import _get_json_schema
 from dspy.adapters.xml_adapter import XMLAdapter
 from tests.adapters.conftest import format_messages_and_lm_kwargs
 from tests.test_utils.engines import make_response
+
+
+def _schema_note(annotation):
+    schema = json.dumps(_get_json_schema(annotation), ensure_ascii=False)
+    return f"\n# note: the XML above must adhere to the JSON schema: {schema}"
 
 
 def test_xml_adapter_format_and_parse_basic():
@@ -512,6 +519,8 @@ def test_xml_adapter_typed_dict_schema_and_parsing():
         "<orders>\n<item>\n<order_id>\n...\n</order_id>\n<address>\n<city>\n...\n</city>\n</address>\n"
         "<labels>\n<item>\n...\n</item>\n</labels>\n</item>\n</orders>"
     )
+    order_schema += _schema_note(Order)
+    orders_schema += _schema_note(list[Order])
     system_instructions = adapter.format_field_structure(TestSignature)
     assert f"{order_schema}\n\n{orders_schema}" in system_instructions
     assert adapter.user_message_output_requirements(TestSignature) == (
@@ -1194,7 +1203,8 @@ def test_xml_adapter_format_exact_messages_with_history_demo_pydantic_tools_and_
                  "Your output fields are:\n"
                  "1. `answer` (AnswerCard):\n"
                  "Output format (replace placeholders):\n"
-                 "<answer>\n<answer>\n...\n</answer>\n<sources>\n<item>\n...\n</item>\n</sources>\n</answer>\n"
+                 "<answer>\n<answer>\n...\n</answer>\n<sources>\n<item>\n...\n</item>\n</sources>\n</answer>"
+                 + _schema_note(AnswerCard) + "\n"
                  "In adhering to this structure, your objective is: \n"
                  "        Answer using all supplied context."},
      {"role": "user",
@@ -1234,9 +1244,9 @@ def test_xml_adapter_format_exact_messages_with_history_demo_pydantic_tools_and_
                  'Who is Ada?\n'
                  '</question>\n\n'
                  'Output format (replace placeholders):\n'
-                 '<answer>\n<answer>\n...\n</answer>\n<sources>\n<item>\n...\n</item>\n</sources>\n</answer>\n\n'
-                 'Use this format for text outputs. Put field tags on separate lines. '
-                 'Write string values literally, without XML or JSON escaping.'},
+                 '<answer>\n<answer>\n...\n</answer>\n<sources>\n<item>\n...\n</item>\n</sources>\n</answer>' + _schema_note(AnswerCard) + "\n\n"
+                 "Use this format for text outputs. Put field tags on separate lines. "
+                 "Write string values literally, without XML or JSON escaping."},
      {"role": "assistant",
       "content": "<answer>\n<answer>\nAda is a mathematician.\n</answer>\n<sources>\n<item>\nmemory\n</item>\n</sources>\n</answer>"},
      {"role": "user",
@@ -1262,9 +1272,9 @@ def test_xml_adapter_format_exact_messages_with_history_demo_pydantic_tools_and_
                            '</question>\n'
                            '\n'
                            'Output format (replace placeholders):\n'
-                           '<answer>\n<answer>\n...\n</answer>\n<sources>\n<item>\n...\n</item>\n</sources>\n</answer>\n\n'
-                           'Use this format for text outputs. Put field tags on separate lines. '
-                           'Write string values literally, without XML or JSON escaping.'}]}]
+                           '<answer>\n<answer>\n...\n</answer>\n<sources>\n<item>\n...\n</item>\n</sources>\n</answer>' + _schema_note(AnswerCard) + "\n\n"
+                           "Use this format for text outputs. Put field tags on separate lines. "
+                           "Write string values literally, without XML or JSON escaping."}]}]
     assert messages == expected_messages
     expected_lm_kwargs = {}
     assert lm_kwargs == expected_lm_kwargs
@@ -1291,7 +1301,8 @@ def test_xml_adapter_format_exact_messages_with_nested_pydantic_output():
                  "1. `summary` (XmlSummary):\n"
                  "Output format (replace placeholders):\n"
                  "<summary>\n<title>\n...\n</title>\n<address>\n<city>\n...\n</city>\n<country>\n...\n</country>\n"
-                 "</address>\n</summary>\n"
+                 "</address>\n</summary>"
+                 + _schema_note(XmlSummary) + "\n"
                  "In adhering to this structure, your objective is: \n"
                  "        Given the fields `question`, produce the fields `summary`."},
      {"role": "user",
@@ -1301,7 +1312,8 @@ def test_xml_adapter_format_exact_messages_with_nested_pydantic_output():
                  "\n"
                  "Output format (replace placeholders):\n"
                  "<summary>\n<title>\n...\n</title>\n<address>\n<city>\n...\n</city>\n<country>\n...\n</country>\n"
-                 "</address>\n</summary>\n\n"
+                 "</address>\n</summary>"
+                 + _schema_note(XmlSummary) + "\n\n"
                  "Use this format for text outputs. Put field tags on separate lines. "
                  "Write string values literally, without XML or JSON escaping."}]
     assert messages == expected_messages
@@ -1384,7 +1396,7 @@ def test_format_system_message():
     adapter = dspy.XMLAdapter()
     system_message = adapter.format_system_message(MySignature)
 
-    expected_system_message = """Your input fields are:
+    expected_system_message = f"""Your input fields are:
 1. `question` (str):
 Your output fields are:
 1. `answers` (list[str]):\x20
@@ -1394,13 +1406,13 @@ Output format (replace placeholders):
 <item>
 ...
 </item>
-</answers>
+</answers>{_schema_note(list[str])}
 
 <scores>
 <item>
 ...
 </item>
-</scores>
+</scores>{_schema_note(list[float])}
 In adhering to this structure, your objective is:\x20
         Answer the question with multiple answers and scores"""
     assert system_message == expected_system_message
@@ -1416,3 +1428,19 @@ def test_xml_adapter_missing_optional_output_fields_fall_back_to_defaults():
     adapter = XMLAdapter()
     parsed = adapter.parse(TestSignature, "<answer>Paris</answer>")
     assert parsed == {"answer": "Paris", "note": "No note", "maybe": None}
+
+
+def test_xml_adapter_nested_output_keeps_schema_metadata():
+    class Policy(pydantic.BaseModel):
+        """Refund rules stated in the passages."""
+
+        days: int = pydantic.Field(description="Calendar days; never assume 30")
+        channel: Literal["web_form", "courier_pickup"] = pydantic.Field(description="How a return starts")
+
+    class PolicySignature(dspy.Signature):
+        passages: str = dspy.InputField()
+        policy: Policy = dspy.OutputField()
+
+    structure = XMLAdapter().format_field_structure(PolicySignature)
+    for marker in ("Refund rules stated", "never assume 30", "courier_pickup", "How a return starts"):
+        assert marker in structure
